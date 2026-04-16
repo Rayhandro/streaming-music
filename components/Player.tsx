@@ -277,8 +277,20 @@ export function Player() {
 
   return (
     <>
-      {/* Hidden YouTube Player */}
-      <div className="fixed top-[-1000px] left-[-1000px] w-[1px] h-[1px] opacity-0 pointer-events-none">
+      {/* Hidden YouTube Player - kept in viewport with clip for iOS Safari compatibility */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          right: 0,
+          width: '1px',
+          height: '1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          zIndex: -1,
+          pointerEvents: 'none',
+        }}
+      >
         <YouTube
           videoId={currentTrack.videoId}
           opts={{
@@ -288,6 +300,10 @@ export function Player() {
               autoplay: 1,
               controls: 0,
               playsinline: 1,
+              enablejsapi: 1,
+              origin: typeof window !== 'undefined' ? window.location.origin : '',
+              modestbranding: 1,
+              rel: 0,
             },
           }}
           onReady={onReady}
@@ -305,8 +321,38 @@ export function Player() {
             className="fixed bottom-[140px] left-4 right-4 z-50 bg-[#A78BFA] rounded-2xl p-4 flex items-center gap-3 shadow-2xl cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
+              // Try multiple strategies to start playback on iOS
               if (playerRef.current) {
-                playerRef.current.playVideo();
+                try {
+                  playerRef.current.playVideo();
+                } catch {}
+              }
+              // Also try to resume AudioContext
+              if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+                audioCtxRef.current.resume().catch(() => {});
+              }
+              setNeedsManualPlay(false);
+              // Verify playback actually started after a short delay
+              setTimeout(() => {
+                if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
+                  const state = playerRef.current.getPlayerState();
+                  if (state !== YouTube.PlayerState.PLAYING && state !== YouTube.PlayerState.BUFFERING) {
+                    // Still not playing - try once more
+                    try { playerRef.current.playVideo(); } catch {}
+                  }
+                }
+              }, 500);
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              // iOS sometimes needs touchend to unlock audio
+              if (playerRef.current) {
+                try {
+                  playerRef.current.playVideo();
+                } catch {}
+              }
+              if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+                audioCtxRef.current.resume().catch(() => {});
               }
               setNeedsManualPlay(false);
             }}
